@@ -33,11 +33,6 @@ A Django-based system that fetches emails from IMAP servers and provides access 
 - Thread-aware email retrieval
 - Folder management
 
-## Documentation
-
-- [API Documentation](apidoc.md) - Detailed API specification
-- [Postman Collection](SimpleImap2Api.postman_collection.json) - Ready-to-use API collection for testing
-
 ## Installation
 
 ### Prerequisites
@@ -48,16 +43,11 @@ A Django-based system that fetches emails from IMAP servers and provides access 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/SimpleImap2Api.git
+git clone https://github.com/PiotrEsse/SimpleImap2Api.git
 cd SimpleImap2Api
 ```
 
-2. Copy the example environment file:
-```bash
-cp .env.example .env
-```
-
-3. Edit the .env file with your settings:
+2. Create a `.env` file:
 ```bash
 # Django settings
 DJANGO_SECRET_KEY=your-secret-key
@@ -67,51 +57,99 @@ ALLOWED_HOSTS=localhost,127.0.0.1
 # Database settings
 DB_NAME=simple_imap2api
 DB_USER=dbuser
-DB_PASSWORD=your-secure-password
+DB_PASSWORD=dbpassword
+DB_HOST=db
+DB_PORT=5432
 ```
 
-4. Start the services:
+3. Build and run with Docker Compose:
 ```bash
-./manage.sh prod
+docker-compose up -d
+```
+
+4. Create a superuser:
+```bash
+docker-compose exec web python manage.py createsuperuser
+```
+
+### Manual Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/SimpleImap2Api.git
+cd SimpleImap2Api
+```
+
+2. Create a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+4. Set up the database:
+```bash
+python manage.py migrate
 ```
 
 5. Create a superuser:
 ```bash
-./manage.sh createsuperuser
+python manage.py createsuperuser
 ```
 
-### Development Setup
-
-1. Start development environment:
+6. Run the development server:
 ```bash
-./manage.sh dev
+python manage.py runserver
 ```
 
-2. Run migrations:
+## Configuration
+
+### IMAP Server Setup
+
+1. Log in to the admin interface at `/admin`
+2. Add a new IMAP server configuration:
+   - Server name (for identification)
+   - Host and port
+   - Username and password
+   - SSL/TLS settings
+   - Sync options:
+     * All messages
+     * Last N messages
+     * Messages from last N days/weeks/months
+   - Folder settings:
+     * Specific folders to sync
+     * Exclude trash option
+
+### Email Syncing
+
+#### Manual Sync
+Use the web interface:
+1. Go to IMAP Servers page
+2. Click "Sync" button for the desired server
+
+#### Automated Sync
+Set up a cron job to run:
 ```bash
-./manage.sh migrate
+# In Docker:
+docker-compose exec web python manage.py sync_emails
+
+# Manual installation:
+python manage.py sync_emails
 ```
 
-3. Create superuser:
-```bash
-./manage.sh createsuperuser
-```
+Optional parameters:
+- `--user <id>`: Sync specific user's servers
+- `--days <number>`: Override sync period
 
-## Usage
+## API Usage
 
-### Web Interface
+### Authentication
 
-1. Access the admin interface at `/admin`
-2. Add IMAP server configuration
-3. Configure sync settings:
-   - Select folders to sync
-   - Set sync limits (time-based or message count)
-   - Enable/disable trash folder exclusion
-4. Access emails at the root URL `/`
-
-### API Usage
-
-1. Obtain authentication token:
+1. Obtain an authentication token:
 ```bash
 curl -X POST http://localhost:8000/api-token-auth/ \
      -H "Content-Type: application/json" \
@@ -124,90 +162,129 @@ curl -H "Authorization: Token your_token_here" \
      http://localhost:8000/api/emails/
 ```
 
-### Management Commands
+### API Endpoints
 
-The `manage.sh` script provides common operations:
+#### Emails
+- `GET /api/emails/`: List emails
+- `GET /api/emails/{id}/`: Get email details
+- `GET /api/emails/{id}/thread/`: Get email thread
+- `GET /api/emails/threads/`: List email threads
 
+Query parameters:
+- `q`: Search term
+- `folder`: Filter by folder
+- `date_from`, `date_to`: Date range
+- `thread`: Show threaded view
+
+#### IMAP Servers
+- `GET /api/imap-servers/`: List servers
+- `POST /api/imap-servers/`: Add server
+- `PUT /api/imap-servers/{id}/`: Update server
+- `POST /api/imap-servers/{id}/sync/`: Trigger sync
+
+## Docker Deployment
+
+### Docker Compose Configuration
+
+```yaml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+
+  web:
+    build: .
+    command: gunicorn simple_imap2api.wsgi:application --bind 0.0.0.0:8000
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    expose:
+      - 8000
+    environment:
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DJANGO_DEBUG=${DJANGO_DEBUG}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+    depends_on:
+      - db
+
+  nginx:
+    image: nginx:1.21
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "80:80"
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:
+```
+
+### Dockerfile
+
+```dockerfile
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN python manage.py collectstatic --noinput
+
+EXPOSE 8000
+
+CMD ["gunicorn", "simple_imap2api.wsgi:application", "--bind", "0.0.0.0:8000"]
+```
+
+### Production Deployment
+
+1. Set up environment variables in `.env`
+2. Build and start containers:
 ```bash
-./manage.sh help          # Show available commands
-./manage.sh dev          # Start development environment
-./manage.sh prod         # Start production environment
-./manage.sh stop         # Stop all containers
-./manage.sh backup       # Create database backup
-./manage.sh restore      # Restore database from backup
-./manage.sh sync_emails  # Run email synchronization
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
-## Configuration
-
-### Environment Variables
-
-Key environment variables:
-
+3. Run migrations:
 ```bash
-DJANGO_SECRET_KEY        # Django secret key
-DJANGO_DEBUG            # Debug mode (True/False)
-ALLOWED_HOSTS           # Comma-separated list of allowed hosts
-DB_NAME                 # Database name
-DB_USER                # Database user
-DB_PASSWORD            # Database password
-REDIS_URL              # Redis connection URL
+docker-compose exec web python manage.py migrate
 ```
 
-### Sync Settings
-
-Configure in the admin interface or API:
-
-- Sync limit types:
-  * All messages
-  * Last N messages
-  * Messages from last N days/weeks/months
-- Folder selection
-- Trash folder exclusion
-- SSL/TLS settings
-
-## Development
-
-### Project Structure
-
-```
-SimpleImap2Api/
-├── api/                # API implementation
-├── emails/            # Core email functionality
-├── templates/         # HTML templates
-├── static/           # Static files
-├── media/            # User-uploaded files
-├── logs/             # Application logs
-└── backups/          # Database backups
-```
-
-### Running Tests
-
+4. Create superuser:
 ```bash
-./manage.sh test
+docker-compose exec web python manage.py createsuperuser
 ```
 
-## Production Deployment
-
-1. Update production settings:
-   - Set secure passwords
-   - Configure allowed hosts
-   - Enable SSL/TLS
-   - Set up proper email backend
-
-2. Deploy using Docker:
+5. Set up cron job for email syncing:
 ```bash
-./manage.sh prod
-```
-
-3. Set up SSL certificate:
-   - Configure SSL in nginx.conf
-   - Update allowed hosts
-   - Enable secure cookies
-
-4. Set up regular backups:
-```bash
-./manage.sh backup
+docker-compose exec web python manage.py sync_emails
 ```
 
 ## Security Considerations
@@ -220,6 +297,37 @@ SimpleImap2Api/
 6. Monitor server logs
 7. Back up database regularly
 
+## Troubleshooting
+
+### Common Issues
+
+1. Connection errors:
+   - Check IMAP server credentials
+   - Verify SSL/TLS settings
+   - Check firewall rules
+
+2. Sync issues:
+   - Check folder permissions
+   - Verify folder names
+   - Check server timeout settings
+
+3. Threading issues:
+   - Verify message IDs
+   - Check reference headers
+   - Validate email format
+
+### Logs
+
+Access logs in Docker:
+```bash
+docker-compose logs web
+```
+
+Access Django logs:
+```bash
+tail -f logs/debug.log
+```
+
 ## Contributing
 
 1. Fork the repository
@@ -230,9 +338,3 @@ SimpleImap2Api/
 ## License
 
 MIT License - see LICENSE file for details
-
-## Support
-
-- Create an issue for bug reports
-- Submit pull requests for improvements
-- Check documentation for common issues
