@@ -1,0 +1,50 @@
+# Django and REST framework
+Django>=5.1.3
+djangorestframework>=3.15.2
+django-cors-headers>=4.6.0
+django-filter>=24.3
+django-environ>=0.11.2
+
+# Database
+psycopg2-binary>=2.9.9
+
+# IMAP and Email Processing
+imap-tools>=1.7.4
+chardet>=5.2.0
+python-dotenv>=1.0.1
+
+# Server
+gunicorn>=21.2.0
+whitenoise>=6.6.0
+
+# Security
+django-debug-toolbar>=4.2.0
+python-jose>=3.3.0
+
+# Production
+sentry-sdk>=1.39.1
+
+# Testing
+pytest>=7.4.3
+pytest-django>=4.7.0
+factory-boy>=3.3.0
+
+# Development
+black>=23.11.0
+flake8>=6.1.0
+isort>=5.12.0
+mypy>=1.7.0
+
+# Documentation
+Sphinx>=7.2.6
+sphinx-rtd-theme>=1.3.0
+
+# Monitoring
+django-health-check>=3.17.0
+
+# Caching
+redis>=5.0.1
+django-redis>=5.4.0
+
+# Task Queue (for background processing)
+celery>=5.3.6

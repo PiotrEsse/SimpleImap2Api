@@ -1,0 +1,235 @@
+{% extends 'base.html' %}
+
+{% block title %}Emails - Simple IMAP2API{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Sidebar with filters -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Filters</h5>
+            </div>
+            <div class="card-body">
+                <form method="get">
+                    <div class="mb-3">
+                        <label for="server" class="form-label">IMAP Server</label>
+                        <select name="server" id="server" class="form-select">
+                            <option value="">All Servers</option>
+                            {% for server in imap_servers %}
+                            <option value="{{ server.id }}" {% if selected_server == server.id %}selected{% endif %}>
+                                {{ server.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="folder" class="form-label">Folder</label>
+                        <select name="folder" id="folder" class="form-select">
+                            <option value="">All Folders</option>
+                            {% for folder in folders %}
+                            <option value="{{ folder }}" {% if selected_folder == folder %}selected{% endif %}>
+                                {{ folder }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="search" class="form-label">Search</label>
+                        <input type="text" name="q" id="search" class="form-control" value="{{ request.GET.q }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="date_from" class="form-label">Date From</label>
+                        <input type="date" name="date_from" id="date_from" class="form-control" value="{{ request.GET.date_from }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="date_to" class="form-label">Date To</label>
+                        <input type="date" name="date_to" id="date_to" class="form-control" value="{{ request.GET.date_to }}">
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input type="checkbox" name="show_threads" id="show_threads" class="form-check-input" 
+                                   {% if show_threads %}checked{% endif %}>
+                            <label class="form-check-label" for="show_threads">Group by Thread</label>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Apply Filters</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Email list and content -->
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Emails</h5>
+                <div>
+                    <button class="btn btn-primary" id="syncBtn">Sync Emails</button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush email-list">
+                    {% for email in emails %}
+                    <a href="#" class="list-group-item list-group-item-action email-item" data-email-id="{{ email.id }}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                {% if email.thread_id and email.thread_count > 1 %}
+                                <span class="badge bg-primary me-2" title="Thread">
+                                    {{ email.thread_count }}
+                                </span>
+                                {% endif %}
+                                <h6 class="mb-1">{{ email.subject|truncatechars:50 }}</h6>
+                            </div>
+                            <small>{{ email.date|date:"M d, Y" }}</small>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <p class="mb-1">{{ email.sender }}</p>
+                            <small class="text-muted">{{ email.folder }}</small>
+                        </div>
+                        <small class="text-muted">{{ email.body_text|truncatechars:100 }}</small>
+                    </a>
+                    {% empty %}
+                    <div class="list-group-item">
+                        <p class="text-center mb-0">No emails found.</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Email content modal -->
+        <div class="modal fade" id="emailModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Email Details</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="emailContent"></div>
+                        <div id="threadContent" class="mt-4 border-top pt-3" style="display: none;">
+                            <h6>Thread Messages</h6>
+                            <div class="thread-messages"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle email item clicks
+    document.querySelectorAll('.email-item').forEach(item => {
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            const emailId = this.dataset.emailId;
+            
+            // First get the email details
+            fetch(`/api/emails/${emailId}/`)
+                .then(response => response.json())
+                .then(data => {
+                    let content = `
+                        <h5>${data.subject}</h5>
+                        <p><strong>From:</strong> ${data.sender}</p>
+                        <p><strong>To:</strong> ${data.recipient}</p>
+                        <p><strong>Date:</strong> ${new Date(data.date).toLocaleString()}</p>
+                        <p><strong>Folder:</strong> ${data.folder}</p>
+                        <hr>
+                        <div class="email-content">
+                            ${data.body_html || data.body_text}
+                        </div>
+                    `;
+                    document.getElementById('emailContent').innerHTML = content;
+
+                    // If it's part of a thread, get thread messages
+                    if (data.thread_id) {
+                        fetch(`/api/emails/${emailId}/thread/`)
+                            .then(response => response.json())
+                            .then(threadData => {
+                                if (threadData.length > 1) {
+                                    const threadHtml = threadData
+                                        .filter(email => email.id !== data.id)
+                                        .map(email => `
+                                            <div class="card mb-2">
+                                                <div class="card-header">
+                                                    <strong>${email.subject}</strong>
+                                                    <br>
+                                                    <small>
+                                                        From: ${email.sender} | 
+                                                        Date: ${new Date(email.date).toLocaleString()} |
+                                                        Folder: ${email.folder}
+                                                    </small>
+                                                </div>
+                                                <div class="card-body">
+                                                    ${email.body_html || email.body_text}
+                                                </div>
+                                            </div>
+                                        `).join('');
+                                    
+                                    document.querySelector('.thread-messages').innerHTML = threadHtml;
+                                    document.getElementById('threadContent').style.display = 'block';
+                                } else {
+                                    document.getElementById('threadContent').style.display = 'none';
+                                }
+                            });
+                    } else {
+                        document.getElementById('threadContent').style.display = 'none';
+                    }
+                    
+                    new bootstrap.Modal(document.getElementById('emailModal')).show();
+                });
+        });
+    });
+
+    // Handle sync button
+    document.getElementById('syncBtn').addEventListener('click', function() {
+        const serverId = document.getElementById('server').value;
+        if (serverId) {
+            this.disabled = true;
+            this.textContent = 'Syncing...';
+            
+            fetch(`/api/imap-servers/${serverId}/sync/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    location.reload();
+                } else {
+                    alert('Sync failed: ' + data.message);
+                    this.disabled = false;
+                    this.textContent = 'Sync Emails';
+                }
+            });
+        } else {
+            alert('Please select a server to sync');
+        }
+    });
+
+    // Helper function to get CSRF token
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+});
+</script>
+{% endblock %}
