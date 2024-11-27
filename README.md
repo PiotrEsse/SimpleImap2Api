@@ -43,7 +43,7 @@ A Django-based system that fetches emails from IMAP servers and provides access 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/SimpleImap2Api.git
+git clone https://github.com/PiotrEsse/SimpleImap2Api.git
 cd SimpleImap2Api
 ```
 
